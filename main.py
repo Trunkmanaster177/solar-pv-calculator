@@ -5,18 +5,19 @@ Flask backend for the Solar PV Yield Calculator.
 Run this file to start the app: python main.py
 
 Endpoints:
-    GET  /              → Serves the main HTML page
-    POST /api/calculate → Runs full solar calculation
-    POST /api/compare   → Compares two system sizes
-    GET  /api/presets   → Returns Indian city presets
-    POST /api/report    → Generates downloadable PDF report
+  GET  /                     → Serves the main HTML page
+  POST /api/calculate        → Runs full solar calculation
+  POST /api/compare          → Compares two system sizes
+  GET  /api/presets          → Returns Indian city presets
+  POST /api/report           → Generates downloadable PDF report
+  GET  /api/search-location  → Search any location by name (Nominatim)
 """
 
 from flask import Flask, render_template, request, jsonify, send_file
 import io
 import json
+import requests as http_requests
 from datetime import datetime
-
 from nasa_api import fetch_solar_irradiance
 from calculator import run_full_calculation, calculate_monthly_energy, calculate_savings
 
@@ -34,19 +35,19 @@ except ImportError:
 app = Flask(__name__)
 
 # ─── Indian City Presets ───────────────────────────────────────────────────────
-INDIAN_CITY_PRESETS = {
-    "Mumbai":     {"lat": 19.076,  "lon": 72.877,  "tilt": 19},
-    "Delhi":      {"lat": 28.704,  "lon": 77.102,  "tilt": 29},
-    "Bengaluru":  {"lat": 12.972,  "lon": 77.594,  "tilt": 13},
-    "Chennai":    {"lat": 13.083,  "lon": 80.270,  "tilt": 13},
-    "Kolkata":    {"lat": 22.573,  "lon": 88.364,  "tilt": 23},
-    "Hyderabad":  {"lat": 17.385,  "lon": 78.487,  "tilt": 17},
-    "Jaipur":     {"lat": 26.912,  "lon": 75.787,  "tilt": 27},
-    "Ahmedabad":  {"lat": 23.023,  "lon": 72.572,  "tilt": 23},
-    "Pune":       {"lat": 18.520,  "lon": 73.856,  "tilt": 19},
-    "Bhopal":     {"lat": 23.259,  "lon": 77.413,  "tilt": 23},
-}
 
+INDIAN_CITY_PRESETS = {
+    "Mumbai":    {"lat": 19.076, "lon": 72.877, "tilt": 19},
+    "Delhi":     {"lat": 28.704, "lon": 77.102, "tilt": 29},
+    "Bengaluru": {"lat": 12.972, "lon": 77.594, "tilt": 13},
+    "Chennai":   {"lat": 13.083, "lon": 80.270, "tilt": 13},
+    "Kolkata":   {"lat": 22.573, "lon": 88.364, "tilt": 23},
+    "Hyderabad": {"lat": 17.385, "lon": 78.487, "tilt": 17},
+    "Jaipur":    {"lat": 26.912, "lon": 75.787, "tilt": 27},
+    "Ahmedabad": {"lat": 23.023, "lon": 72.572, "tilt": 23},
+    "Pune":      {"lat": 18.520, "lon": 73.856, "tilt": 19},
+    "Bhopal":    {"lat": 23.259, "lon": 77.413, "tilt": 23},
+}
 
 # ─── Routes ───────────────────────────────────────────────────────────────────
 
@@ -62,6 +63,78 @@ def get_presets():
     return jsonify(INDIAN_CITY_PRESETS)
 
 
+# ─── NEW: Location Search ──────────────────────────────────────────────────────
+
+@app.route("/api/search-location", methods=["GET"])
+def search_location():
+    """
+    Search for a location by name using OpenStreetMap Nominatim API.
+    Returns up to 5 matching places with lat/lon and a suggested tilt angle.
+
+    Query param: q (string) — the location name to search
+
+    Example: GET /api/search-location?q=Nagpur
+    """
+    query = request.args.get("q", "").strip()
+    if not query or len(query) < 2:
+        return jsonify({"error": "Query too short. Please enter at least 2 characters."}), 400
+
+    try:
+        nominatim_url = "https://nominatim.openstreetmap.org/search"
+        params = {
+            "q": query,
+            "format": "json",
+            "limit": 5,
+            "addressdetails": 1,
+        }
+        headers = {
+            # Nominatim requires a User-Agent identifying your app
+            "User-Agent": "SolarPVCalculator/1.0 (contact@solarpv.app)"
+        }
+
+        resp = http_requests.get(nominatim_url, params=params, headers=headers, timeout=5)
+        resp.raise_for_status()
+        raw = resp.json()
+
+        if not raw:
+            return jsonify({"results": [], "message": "No locations found. Try a different name."})
+
+        results = []
+        for place in raw:
+            lat = float(place["lat"])
+            lon = float(place["lon"])
+
+            # Suggest optimal tilt ≈ latitude (standard solar rule of thumb)
+            suggested_tilt = round(abs(lat))
+
+            # Build a clean display name
+            address = place.get("address", {})
+            parts = [
+                address.get("city") or address.get("town") or address.get("village") or address.get("county"),
+                address.get("state"),
+                address.get("country"),
+            ]
+            display_name = ", ".join(p for p in parts if p) or place.get("display_name", "Unknown")
+
+            results.append({
+                "display_name": display_name,
+                "full_name": place.get("display_name", ""),
+                "lat": lat,
+                "lon": lon,
+                "suggested_tilt": suggested_tilt,
+                "type": place.get("type", ""),
+            })
+
+        return jsonify({"results": results})
+
+    except http_requests.Timeout:
+        return jsonify({"error": "Location search timed out. Please try again."}), 504
+    except Exception as e:
+        return jsonify({"error": f"Location search failed: {str(e)}"}), 500
+
+
+# ─── Existing Endpoints (unchanged) ───────────────────────────────────────────
+
 @app.route("/api/calculate", methods=["POST"])
 def calculate():
     """
@@ -71,7 +144,6 @@ def calculate():
     try:
         data = request.get_json()
 
-        # Validate required inputs
         required = ["latitude", "longitude", "capacity_kw", "efficiency",
                     "tilt_angle", "shading_loss", "electricity_rate"]
         for field in required:
@@ -89,10 +161,7 @@ def calculate():
             "monthly_bill":     float(data.get("monthly_bill", 2000)),
         }
 
-        # Fetch solar irradiance from NASA POWER API
         irradiance = fetch_solar_irradiance(inputs["latitude"], inputs["longitude"])
-
-        # Run all calculations
         results = run_full_calculation(inputs, irradiance)
         results["inputs"] = inputs
 
@@ -104,10 +173,7 @@ def calculate():
 
 @app.route("/api/compare", methods=["POST"])
 def compare():
-    """
-    Compare two solar system sizes side-by-side.
-    Expects: same inputs but with capacity_kw_1 and capacity_kw_2.
-    """
+    """Compare two solar system sizes side-by-side."""
     try:
         data = request.get_json()
         lat  = float(data["latitude"])
@@ -127,19 +193,19 @@ def compare():
             yearly_kwh = round(sum(energy), 2)
             yearly_inr = round(sum(savings), 2)
             return {
-                "capacity_kw":   capacity_kw,
-                "yearly_kwh":    yearly_kwh,
-                "yearly_savings":yearly_inr,
-                "monthly_energy":energy,
-                "monthly_savings":savings,
-                "install_cost":  round(capacity_kw * 50000, 0),
-                "payback_years": round((capacity_kw * 50000) / yearly_inr, 1) if yearly_inr > 0 else None
+                "capacity_kw":      capacity_kw,
+                "yearly_kwh":       yearly_kwh,
+                "yearly_savings":   yearly_inr,
+                "monthly_energy":   energy,
+                "monthly_savings":  savings,
+                "install_cost":     round(capacity_kw * 50000, 0),
+                "payback_years":    round((capacity_kw * 50000) / yearly_inr, 1) if yearly_inr > 0 else None,
             }
 
         return jsonify({
             "success": True,
             "system1": build_summary(kw1),
-            "system2": build_summary(kw2)
+            "system2": build_summary(kw2),
         })
 
     except Exception as e:
@@ -153,28 +219,25 @@ def generate_report():
         return jsonify({"error": "PDF library not installed. Run: pip install reportlab"}), 500
 
     try:
-        data = request.get_json()
+        data    = request.get_json()
         results = data.get("results", {})
         inputs  = data.get("inputs", {})
 
         buffer = io.BytesIO()
-        doc    = SimpleDocTemplate(buffer, pagesize=A4,
-                                   rightMargin=2*cm, leftMargin=2*cm,
-                                   topMargin=2*cm,  bottomMargin=2*cm)
+        doc = SimpleDocTemplate(buffer, pagesize=A4,
+                                rightMargin=2*cm, leftMargin=2*cm,
+                                topMargin=2*cm, bottomMargin=2*cm)
+        styles = getSampleStyleSheet()
+        story  = []
 
-        styles  = getSampleStyleSheet()
-        story   = []
-
-        # Title
         title_style = ParagraphStyle("Title", parent=styles["Title"],
                                      fontSize=20, textColor=colors.HexColor("#f97316"),
                                      spaceAfter=6)
         story.append(Paragraph("☀ Solar PV Yield Report", title_style))
         story.append(Paragraph(f"Generated: {datetime.now().strftime('%d %b %Y, %I:%M %p')}",
-                                styles["Normal"]))
+                               styles["Normal"]))
         story.append(Spacer(1, 0.4*cm))
 
-        # System Details
         story.append(Paragraph("System Details", styles["Heading2"]))
         sys_data = [
             ["Parameter", "Value"],
@@ -187,66 +250,63 @@ def generate_report():
         ]
         t = Table(sys_data, colWidths=[8*cm, 8*cm])
         t.setStyle(TableStyle([
-            ("BACKGROUND",  (0,0), (-1,0), colors.HexColor("#f97316")),
-            ("TEXTCOLOR",   (0,0), (-1,0), colors.white),
-            ("FONTNAME",    (0,0), (-1,0), "Helvetica-Bold"),
-            ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#fff7ed")]),
-            ("GRID",        (0,0), (-1,-1), 0.5, colors.HexColor("#fed7aa")),
-            ("FONTSIZE",    (0,0), (-1,-1), 10),
-            ("PADDING",     (0,0), (-1,-1), 6),
+            ("BACKGROUND",   (0,0), (-1,0), colors.HexColor("#f97316")),
+            ("TEXTCOLOR",    (0,0), (-1,0), colors.white),
+            ("FONTNAME",     (0,0), (-1,0), "Helvetica-Bold"),
+            ("ROWBACKGROUNDS",(0,1),(-1,-1),[colors.white, colors.HexColor("#fff7ed")]),
+            ("GRID",         (0,0), (-1,-1), 0.5, colors.HexColor("#fed7aa")),
+            ("FONTSIZE",     (0,0), (-1,-1), 10),
+            ("PADDING",      (0,0), (-1,-1), 6),
         ]))
         story.append(t)
         story.append(Spacer(1, 0.5*cm))
 
-        # Energy Output
         story.append(Paragraph("Energy Output", styles["Heading2"]))
         yearly = results.get("yearly", {})
-        daily  = results.get("daily",  {})
+        daily  = results.get("daily", {})
         energy_data = [
             ["Metric", "Value"],
-            ["Daily Energy",   f"{daily.get('energy_kwh',0)} kWh"],
-            ["Yearly Energy",  f"{yearly.get('energy_kwh',0)} kWh"],
-            ["Yearly Savings", f"₹{yearly.get('savings_inr',0):,}"],
-            ["CO₂ Reduction",  f"{yearly.get('co2_kg',0)} kg/year"],
-            ["Trees Equivalent", f"{yearly.get('trees_equiv',0)} trees"],
+            ["Daily Energy",    f"{daily.get('energy_kwh',0)} kWh"],
+            ["Yearly Energy",   f"{yearly.get('energy_kwh',0)} kWh"],
+            ["Yearly Savings",  f"₹{yearly.get('savings_inr',0):,}"],
+            ["CO₂ Reduction",   f"{yearly.get('co2_kg',0)} kg/year"],
+            ["Trees Equivalent",f"{yearly.get('trees_equiv',0)} trees"],
         ]
         t2 = Table(energy_data, colWidths=[8*cm, 8*cm])
         t2.setStyle(TableStyle([
-            ("BACKGROUND",  (0,0), (-1,0), colors.HexColor("#16a34a")),
-            ("TEXTCOLOR",   (0,0), (-1,0), colors.white),
-            ("FONTNAME",    (0,0), (-1,0), "Helvetica-Bold"),
-            ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#f0fdf4")]),
-            ("GRID",        (0,0), (-1,-1), 0.5, colors.HexColor("#bbf7d0")),
-            ("FONTSIZE",    (0,0), (-1,-1), 10),
-            ("PADDING",     (0,0), (-1,-1), 6),
+            ("BACKGROUND",    (0,0), (-1,0), colors.HexColor("#16a34a")),
+            ("TEXTCOLOR",     (0,0), (-1,0), colors.white),
+            ("FONTNAME",      (0,0), (-1,0), "Helvetica-Bold"),
+            ("ROWBACKGROUNDS",(0,1),(-1,-1),[colors.white, colors.HexColor("#f0fdf4")]),
+            ("GRID",          (0,0), (-1,-1), 0.5, colors.HexColor("#bbf7d0")),
+            ("FONTSIZE",      (0,0), (-1,-1), 10),
+            ("PADDING",       (0,0), (-1,-1), 6),
         ]))
         story.append(t2)
         story.append(Spacer(1, 0.5*cm))
 
-        # ROI
         story.append(Paragraph("Return on Investment", styles["Heading2"]))
         roi = results.get("roi", {})
         roi_data = [
             ["Metric", "Value"],
-            ["Installation Cost",    f"₹{int(roi.get('total_cost',0)):,}"],
-            ["Payback Period",       f"{roi.get('payback_years','N/A')} years"],
-            ["25-Year Total Savings",f"₹{int(roi.get('total_25yr_savings',0)):,}"],
-            ["25-Year ROI",          f"{roi.get('roi_25yr','N/A')}%"],
+            ["Installation Cost",      f"₹{int(roi.get('total_cost',0)):,}"],
+            ["Payback Period",         f"{roi.get('payback_years','N/A')} years"],
+            ["25-Year Total Savings",  f"₹{int(roi.get('total_25yr_savings',0)):,}"],
+            ["25-Year ROI",            f"{roi.get('roi_25yr','N/A')}%"],
         ]
         t3 = Table(roi_data, colWidths=[8*cm, 8*cm])
         t3.setStyle(TableStyle([
-            ("BACKGROUND",  (0,0), (-1,0), colors.HexColor("#7c3aed")),
-            ("TEXTCOLOR",   (0,0), (-1,0), colors.white),
-            ("FONTNAME",    (0,0), (-1,0), "Helvetica-Bold"),
-            ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#faf5ff")]),
-            ("GRID",        (0,0), (-1,-1), 0.5, colors.HexColor("#ddd6fe")),
-            ("FONTSIZE",    (0,0), (-1,-1), 10),
-            ("PADDING",     (0,0), (-1,-1), 6),
+            ("BACKGROUND",    (0,0), (-1,0), colors.HexColor("#7c3aed")),
+            ("TEXTCOLOR",     (0,0), (-1,0), colors.white),
+            ("FONTNAME",      (0,0), (-1,0), "Helvetica-Bold"),
+            ("ROWBACKGROUNDS",(0,1),(-1,-1),[colors.white, colors.HexColor("#faf5ff")]),
+            ("GRID",          (0,0), (-1,-1), 0.5, colors.HexColor("#ddd6fe")),
+            ("FONTSIZE",      (0,0), (-1,-1), 10),
+            ("PADDING",       (0,0), (-1,-1), 6),
         ]))
         story.append(t3)
         story.append(Spacer(1, 0.5*cm))
 
-        # Monthly Table
         story.append(Paragraph("Monthly Breakdown", styles["Heading2"]))
         monthly = results.get("monthly", {})
         month_rows = [["Month", "Energy (kWh)", "Savings (₹)", "CO₂ Saved (kg)"]]
@@ -255,26 +315,24 @@ def generate_report():
                 name,
                 str(monthly["energy"][i]),
                 f"₹{monthly['savings'][i]:,}",
-                str(monthly["co2"][i])
+                str(monthly["co2"][i]),
             ])
         t4 = Table(month_rows, colWidths=[3*cm, 4*cm, 4.5*cm, 4.5*cm])
         t4.setStyle(TableStyle([
-            ("BACKGROUND",  (0,0), (-1,0), colors.HexColor("#0369a1")),
-            ("TEXTCOLOR",   (0,0), (-1,0), colors.white),
-            ("FONTNAME",    (0,0), (-1,0), "Helvetica-Bold"),
-            ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#f0f9ff")]),
-            ("GRID",        (0,0), (-1,-1), 0.5, colors.HexColor("#bae6fd")),
-            ("FONTSIZE",    (0,0), (-1,-1), 9),
-            ("PADDING",     (0,0), (-1,-1), 5),
+            ("BACKGROUND",    (0,0), (-1,0), colors.HexColor("#0369a1")),
+            ("TEXTCOLOR",     (0,0), (-1,0), colors.white),
+            ("FONTNAME",      (0,0), (-1,0), "Helvetica-Bold"),
+            ("ROWBACKGROUNDS",(0,1),(-1,-1),[colors.white, colors.HexColor("#f0f9ff")]),
+            ("GRID",          (0,0), (-1,-1), 0.5, colors.HexColor("#bae6fd")),
+            ("FONTSIZE",      (0,0), (-1,-1), 9),
+            ("PADDING",       (0,0), (-1,-1), 5),
         ]))
         story.append(t4)
 
-        # Footer
         story.append(Spacer(1, 0.8*cm))
         story.append(Paragraph(
             "⚡ Generated by Solar PV Yield Calculator | Data source: NASA POWER API",
-            ParagraphStyle("Footer", parent=styles["Normal"], fontSize=8,
-                           textColor=colors.grey)
+            ParagraphStyle("Footer", parent=styles["Normal"], fontSize=8, textColor=colors.grey)
         ))
 
         doc.build(story)
@@ -294,5 +352,4 @@ def generate_report():
 # ─── Entry Point ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    # host="0.0.0.0" is required for Replit to expose a public URL
     app.run(host="0.0.0.0", port=8080, debug=False)
