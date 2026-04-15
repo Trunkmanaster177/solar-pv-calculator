@@ -1,4 +1,154 @@
 <!DOCTYPE html>
+<!-- ============================================================
+  LOCATION SEARCH BAR — paste this ABOVE your existing
+  latitude / longitude input fields in index.html
+  ============================================================ -->
+
+<!-- 1. SEARCH UI -->
+<div class="form-group" id="location-search-group">
+  <label for="locationSearch">🔍 Search Location</label>
+  <div style="position: relative;">
+    <input
+      type="text"
+      id="locationSearch"
+      placeholder="Type any city, district or address…"
+      autocomplete="off"
+      oninput="onLocationInput(this.value)"
+      style="width:100%; padding-right: 2.5rem;"
+    />
+    <!-- spinner shown while fetching -->
+    <span id="searchSpinner"
+          style="display:none; position:absolute; right:0.75rem; top:50%;
+                 transform:translateY(-50%); font-size:1rem;">⏳</span>
+  </div>
+
+  <!-- Dropdown results list -->
+  <ul id="locationResults"
+      style="display:none; list-style:none; margin:0; padding:0;
+             border:1px solid var(--border, #e2e8f0); border-top:none;
+             border-radius:0 0 8px 8px; background:var(--card-bg, #fff);
+             max-height:220px; overflow-y:auto; z-index:999;
+             box-shadow:0 4px 12px rgba(0,0,0,0.1);">
+  </ul>
+
+  <p id="searchMsg" style="font-size:0.8rem; color:#888; margin-top:4px;"></p>
+</div>
+
+
+<!-- ============================================================
+  2. JAVASCRIPT — add this anywhere in your <script> block
+  ============================================================ -->
+<script>
+  let searchTimer = null;   // debounce timer
+
+  /**
+   * Called on every keystroke in the search box.
+   * Debounces 400 ms before hitting the API.
+   */
+  function onLocationInput(value) {
+    clearTimeout(searchTimer);
+    const msg      = document.getElementById('searchMsg');
+    const list     = document.getElementById('locationResults');
+    const spinner  = document.getElementById('searchSpinner');
+
+    if (value.trim().length < 2) {
+      list.style.display  = 'none';
+      msg.textContent     = '';
+      spinner.style.display = 'none';
+      return;
+    }
+
+    spinner.style.display = 'inline';
+    msg.textContent = '';
+
+    searchTimer = setTimeout(() => searchLocation(value.trim()), 400);
+  }
+
+  /**
+   * Fetch matching locations from our Flask endpoint,
+   * which calls OpenStreetMap Nominatim internally.
+   */
+  async function searchLocation(query) {
+    const list    = document.getElementById('locationResults');
+    const spinner = document.getElementById('searchSpinner');
+    const msg     = document.getElementById('searchMsg');
+
+    try {
+      const res  = await fetch(`/api/search-location?q=${encodeURIComponent(query)}`);
+      const data = await res.json();
+
+      spinner.style.display = 'none';
+
+      if (data.error) {
+        msg.textContent   = '⚠ ' + data.error;
+        list.style.display = 'none';
+        return;
+      }
+
+      if (!data.results || data.results.length === 0) {
+        msg.textContent   = '😕 No locations found. Try a different name.';
+        list.style.display = 'none';
+        return;
+      }
+
+      // Build dropdown items
+      list.innerHTML = '';
+      data.results.forEach(place => {
+        const li = document.createElement('li');
+        li.textContent = place.display_name;
+        li.title       = place.full_name;   // tooltip with full address
+        li.style.cssText =
+          'padding:10px 14px; cursor:pointer; font-size:0.9rem;' +
+          'border-bottom:1px solid var(--border, #e2e8f0);' +
+          'transition:background 0.15s;';
+
+        li.onmouseenter = () => li.style.background = 'var(--hover-bg, #f0f9ff)';
+        li.onmouseleave = () => li.style.background = '';
+
+        li.onclick = () => selectLocation(place);
+        list.appendChild(li);
+      });
+
+      list.style.display = 'block';
+
+    } catch (err) {
+      spinner.style.display = 'none';
+      msg.textContent = '❌ Search failed. Please check your connection.';
+      console.error('Location search error:', err);
+    }
+  }
+
+  /**
+   * Called when the user clicks a result.
+   * Fills in lat, lon and tilt fields automatically.
+   */
+  function selectLocation(place) {
+    // Fill the search box with the chosen name
+    document.getElementById('locationSearch').value = place.display_name;
+
+    // Fill the main lat/lon inputs (adjust IDs to match yours)
+    const latField  = document.getElementById('latitude');
+    const lonField  = document.getElementById('longitude');
+    const tiltField = document.getElementById('tilt_angle');
+
+    if (latField)  latField.value  = place.lat.toFixed(4);
+    if (lonField)  lonField.value  = place.lon.toFixed(4);
+    if (tiltField) tiltField.value = place.suggested_tilt;
+
+    // Hide dropdown
+    document.getElementById('locationResults').style.display = 'none';
+    document.getElementById('searchMsg').textContent =
+      `✅ Set to ${place.display_name} (tilt auto-set to ${place.suggested_tilt}°)`;
+  }
+
+  // Close dropdown when clicking outside
+  document.addEventListener('click', function(e) {
+    const group = document.getElementById('location-search-group');
+    if (group && !group.contains(e.target)) {
+      document.getElementById('locationResults').style.display = 'none';
+    }
+  });
+</script>
 <html lang="en" data-theme="light">
 <head>
 <meta charset="UTF-8"/>
