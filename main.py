@@ -1,4 +1,4 @@
-"""
+ """
 main.py
 -------
 Flask backend for the Solar PV Yield Calculator.
@@ -9,6 +9,7 @@ Endpoints:
   POST /api/calculate        → Runs full solar calculation
   POST /api/compare          → Compares two system sizes
   GET  /api/presets          → Returns Indian city presets
+  GET  /api/tariffs          → Returns residential & industrial tariff presets (NEW)
   POST /api/report           → Generates downloadable PDF report
   GET  /api/search-location  → Search any location by name (Nominatim)
 """
@@ -21,7 +22,6 @@ from datetime import datetime
 from nasa_api import fetch_solar_irradiance
 from calculator import run_full_calculation, calculate_monthly_energy, calculate_savings
 
-# PDF generation (reportlab is free)
 try:
     from reportlab.lib.pagesizes import A4
     from reportlab.lib import colors
@@ -49,32 +49,240 @@ INDIAN_CITY_PRESETS = {
     "Bhopal":    {"lat": 23.259, "lon": 77.413, "tilt": 23},
 }
 
+# ─── Tariff Presets (NEW) ──────────────────────────────────────────────────────
+# Sources: State Electricity Regulatory Commission (SERC) orders, FY 2023-24
+# All rates in ₹/kWh. Slabs define tiered billing (limit=None means unlimited).
+
+TARIFF_PRESETS = {
+    "residential": {
+        "label": "Residential / Domestic",
+        "description": "For homes, apartments, and small households",
+        "icon": "🏠",
+        "states": {
+            "Maharashtra": {
+                "discom": "MSEDCL",
+                "flat_rate": 9.06,
+                "slabs": [
+                    {"limit": 100,  "rate": 3.46, "label": "0–100 units"},
+                    {"limit": 300,  "rate": 7.71, "label": "101–300 units"},
+                    {"limit": 500,  "rate": 9.94, "label": "301–500 units"},
+                    {"limit": None, "rate": 11.22,"label": "500+ units"},
+                ]
+            },
+            "Delhi": {
+                "discom": "BSES / Tata Power",
+                "flat_rate": 7.00,
+                "slabs": [
+                    {"limit": 200,  "rate": 3.00, "label": "0–200 units"},
+                    {"limit": 400,  "rate": 4.50, "label": "201–400 units"},
+                    {"limit": 800,  "rate": 6.50, "label": "401–800 units"},
+                    {"limit": None, "rate": 8.00, "label": "800+ units"},
+                ]
+            },
+            "Karnataka": {
+                "discom": "BESCOM",
+                "flat_rate": 7.10,
+                "slabs": [
+                    {"limit": 30,   "rate": 3.15, "label": "0–30 units"},
+                    {"limit": 100,  "rate": 5.55, "label": "31–100 units"},
+                    {"limit": 200,  "rate": 6.60, "label": "101–200 units"},
+                    {"limit": None, "rate": 8.30, "label": "200+ units"},
+                ]
+            },
+            "Tamil Nadu": {
+                "discom": "TNEB",
+                "flat_rate": 5.80,
+                "slabs": [
+                    {"limit": 100,  "rate": 0.00, "label": "0–100 units (Free)"},
+                    {"limit": 200,  "rate": 1.50, "label": "101–200 units"},
+                    {"limit": 500,  "rate": 3.00, "label": "201–500 units"},
+                    {"limit": None, "rate": 6.00, "label": "500+ units"},
+                ]
+            },
+            "Rajasthan": {
+                "discom": "JVVNL / AVVNL",
+                "flat_rate": 6.50,
+                "slabs": [
+                    {"limit": 50,   "rate": 3.50, "label": "0–50 units"},
+                    {"limit": 150,  "rate": 5.00, "label": "51–150 units"},
+                    {"limit": 300,  "rate": 6.50, "label": "151–300 units"},
+                    {"limit": None, "rate": 8.00, "label": "300+ units"},
+                ]
+            },
+            "Gujarat": {
+                "discom": "UGVCL / DGVCL",
+                "flat_rate": 5.50,
+                "slabs": [
+                    {"limit": 50,   "rate": 2.05, "label": "0–50 units"},
+                    {"limit": 200,  "rate": 3.50, "label": "51–200 units"},
+                    {"limit": None, "rate": 5.50, "label": "200+ units"},
+                ]
+            },
+            "Telangana": {
+                "discom": "TSSPDCL / TSNPDCL",
+                "flat_rate": 6.00,
+                "slabs": [
+                    {"limit": 50,   "rate": 1.45, "label": "0–50 units"},
+                    {"limit": 100,  "rate": 2.65, "label": "51–100 units"},
+                    {"limit": 200,  "rate": 4.25, "label": "101–200 units"},
+                    {"limit": None, "rate": 7.20, "label": "200+ units"},
+                ]
+            },
+            "Uttar Pradesh": {
+                "discom": "UPPCL",
+                "flat_rate": 6.50,
+                "slabs": [
+                    {"limit": 100,  "rate": 3.35, "label": "0–100 units"},
+                    {"limit": 150,  "rate": 4.35, "label": "101–150 units"},
+                    {"limit": None, "rate": 6.00, "label": "150+ units"},
+                ]
+            },
+            "West Bengal": {
+                "discom": "WBSEDCL / CESC",
+                "flat_rate": 7.50,
+                "slabs": [
+                    {"limit": 75,   "rate": 5.00, "label": "0–75 units"},
+                    {"limit": 175,  "rate": 6.19, "label": "76–175 units"},
+                    {"limit": None, "rate": 8.50, "label": "175+ units"},
+                ]
+            },
+            "Punjab": {
+                "discom": "PSPCL",
+                "flat_rate": 7.68,
+                "slabs": [
+                    {"limit": 100,  "rate": 4.99, "label": "0–100 units"},
+                    {"limit": 300,  "rate": 6.58, "label": "101–300 units"},
+                    {"limit": None, "rate": 7.68, "label": "300+ units"},
+                ]
+            },
+        }
+    },
+    "industrial": {
+        "label": "Industrial / Commercial",
+        "description": "For factories, offices, shops, and businesses",
+        "icon": "🏭",
+        "states": {
+            "Maharashtra": {
+                "discom": "MSEDCL",
+                "flat_rate": 11.42,
+                "slabs": [
+                    {"limit": 500,  "rate": 9.36,  "label": "0–500 units (LT Commercial)"},
+                    {"limit": None, "rate": 11.42, "label": "500+ units"},
+                ],
+                "note": "HT Industrial: ₹6.76/kWh + demand charges"
+            },
+            "Delhi": {
+                "discom": "BSES / Tata Power",
+                "flat_rate": 9.50,
+                "slabs": [
+                    {"limit": 500,  "rate": 7.50, "label": "0–500 units"},
+                    {"limit": None, "rate": 9.50, "label": "500+ units"},
+                ],
+                "note": "Excludes fixed charges and TOD surcharge"
+            },
+            "Karnataka": {
+                "discom": "BESCOM",
+                "flat_rate": 8.45,
+                "slabs": [
+                    {"limit": 500,  "rate": 6.80, "label": "0–500 units"},
+                    {"limit": None, "rate": 8.45, "label": "500+ units"},
+                ]
+            },
+            "Tamil Nadu": {
+                "discom": "TNEB",
+                "flat_rate": 8.50,
+                "slabs": [
+                    {"limit": 500,  "rate": 6.50, "label": "0–500 units (LT III)"},
+                    {"limit": None, "rate": 8.50, "label": "500+ units"},
+                ]
+            },
+            "Rajasthan": {
+                "discom": "JVVNL / AVVNL",
+                "flat_rate": 9.00,
+                "slabs": [
+                    {"limit": None, "rate": 9.00, "label": "Flat commercial rate"},
+                ]
+            },
+            "Gujarat": {
+                "discom": "UGVCL / DGVCL",
+                "flat_rate": 7.80,
+                "slabs": [
+                    {"limit": None, "rate": 7.80, "label": "LT Industrial flat"},
+                ],
+                "note": "HT consumers have separate demand-based billing"
+            },
+            "Telangana": {
+                "discom": "TSSPDCL / TSNPDCL",
+                "flat_rate": 9.50,
+                "slabs": [
+                    {"limit": None, "rate": 9.50, "label": "LT Commercial / Industrial"},
+                ]
+            },
+            "Uttar Pradesh": {
+                "discom": "UPPCL",
+                "flat_rate": 8.50,
+                "slabs": [
+                    {"limit": None, "rate": 8.50, "label": "LT Industrial flat rate"},
+                ]
+            },
+            "West Bengal": {
+                "discom": "WBSEDCL / CESC",
+                "flat_rate": 9.20,
+                "slabs": [
+                    {"limit": None, "rate": 9.20, "label": "Commercial flat rate"},
+                ]
+            },
+            "Punjab": {
+                "discom": "PSPCL",
+                "flat_rate": 8.46,
+                "slabs": [
+                    {"limit": None, "rate": 8.46, "label": "Industrial flat rate"},
+                ]
+            },
+        }
+    }
+}
+
+
 # ─── Routes ───────────────────────────────────────────────────────────────────
 
 @app.route("/")
 def index():
-    """Serve the main calculator page."""
     return render_template("index.html")
 
 
 @app.route("/api/presets", methods=["GET"])
 def get_presets():
-    """Return Indian city preset data."""
     return jsonify(INDIAN_CITY_PRESETS)
 
 
-# ─── NEW: Location Search ──────────────────────────────────────────────────────
+@app.route("/api/tariffs", methods=["GET"])
+def get_tariffs():
+    """
+    Returns residential and industrial tariff presets for Indian states.
+    Optional query param: category=residential|industrial
+    Optional query param: state=Maharashtra (filter by state)
+    """
+    category = request.args.get("category", None)
+    state    = request.args.get("state", None)
+
+    if category and category in TARIFF_PRESETS:
+        result = {category: TARIFF_PRESETS[category]}
+    else:
+        result = TARIFF_PRESETS
+
+    # Filter by state if requested
+    if state:
+        for cat in result:
+            states = result[cat].get("states", {})
+            if state in states:
+                result[cat] = {**result[cat], "states": {state: states[state]}}
+
+    return jsonify(result)
+
 
 @app.route("/api/search-location", methods=["GET"])
 def search_location():
-    """
-    Search for a location by name using OpenStreetMap Nominatim API.
-    Returns up to 5 matching places with lat/lon and a suggested tilt angle.
-
-    Query param: q (string) — the location name to search
-
-    Example: GET /api/search-location?q=Nagpur
-    """
     query = request.args.get("q", "").strip()
     if not query or len(query) < 2:
         return jsonify({"error": "Query too short. Please enter at least 2 characters."}), 400
@@ -87,10 +295,7 @@ def search_location():
             "limit": 5,
             "addressdetails": 1,
         }
-        headers = {
-            # Nominatim requires a User-Agent identifying your app
-            "User-Agent": "SolarPVCalculator/1.0 (contact@solarpv.app)"
-        }
+        headers = {"User-Agent": "SolarPVCalculator/1.0 (contact@solarpv.app)"}
 
         resp = http_requests.get(nominatim_url, params=params, headers=headers, timeout=5)
         resp.raise_for_status()
@@ -103,11 +308,7 @@ def search_location():
         for place in raw:
             lat = float(place["lat"])
             lon = float(place["lon"])
-
-            # Suggest optimal tilt ≈ latitude (standard solar rule of thumb)
             suggested_tilt = round(abs(lat))
-
-            # Build a clean display name
             address = place.get("address", {})
             parts = [
                 address.get("city") or address.get("town") or address.get("village") or address.get("county"),
@@ -115,7 +316,6 @@ def search_location():
                 address.get("country"),
             ]
             display_name = ", ".join(p for p in parts if p) or place.get("display_name", "Unknown")
-
             results.append({
                 "display_name": display_name,
                 "full_name": place.get("display_name", ""),
@@ -133,13 +333,11 @@ def search_location():
         return jsonify({"error": f"Location search failed: {str(e)}"}), 500
 
 
-# ─── Existing Endpoints (unchanged) ───────────────────────────────────────────
-
 @app.route("/api/calculate", methods=["POST"])
 def calculate():
     """
     Main calculation endpoint.
-    Accepts JSON body with user inputs, fetches NASA data, returns full results.
+    Now accepts optional tariff_slabs for slab-based billing.
     """
     try:
         data = request.get_json()
@@ -159,6 +357,10 @@ def calculate():
             "shading_loss":     float(data["shading_loss"]),
             "electricity_rate": float(data["electricity_rate"]),
             "monthly_bill":     float(data.get("monthly_bill", 2000)),
+            # NEW: optional slab-based tariff
+            "tariff_slabs":     data.get("tariff_slabs", None),
+            "tariff_category":  data.get("tariff_category", "custom"),
+            "tariff_state":     data.get("tariff_state", ""),
         }
 
         irradiance = fetch_solar_irradiance(inputs["latitude"], inputs["longitude"])
@@ -184,12 +386,13 @@ def compare():
         rate = float(data["electricity_rate"])
         kw1  = float(data["capacity_kw_1"])
         kw2  = float(data["capacity_kw_2"])
+        slabs = data.get("tariff_slabs", None)
 
         irradiance = fetch_solar_irradiance(lat, lon)
 
         def build_summary(capacity_kw):
             energy  = calculate_monthly_energy(irradiance, capacity_kw, eff, tilt, shad, lat)
-            savings = calculate_savings(energy, rate)
+            savings = calculate_savings(energy, rate, slabs)
             yearly_kwh = round(sum(energy), 2)
             yearly_inr = round(sum(savings), 2)
             return {
@@ -239,6 +442,14 @@ def generate_report():
         story.append(Spacer(1, 0.4*cm))
 
         story.append(Paragraph("System Details", styles["Heading2"]))
+
+        # Show tariff info in report
+        tariff_label = ""
+        if inputs.get("tariff_category") and inputs["tariff_category"] != "custom":
+            tariff_label = f"{inputs.get('tariff_category','').title()} – {inputs.get('tariff_state','')}"
+        else:
+            tariff_label = "Custom"
+
         sys_data = [
             ["Parameter", "Value"],
             ["Location (Lat, Lon)", f"{inputs.get('latitude','')}, {inputs.get('longitude','')}"],
@@ -246,6 +457,7 @@ def generate_report():
             ["Panel Efficiency",    f"{inputs.get('efficiency','')}%"],
             ["Tilt Angle",          f"{inputs.get('tilt_angle','')}°"],
             ["Shading Loss",        f"{inputs.get('shading_loss','')}%"],
+            ["Tariff Type",         tariff_label],
             ["Electricity Rate",    f"₹{inputs.get('electricity_rate','')}/kWh"],
         ]
         t = Table(sys_data, colWidths=[8*cm, 8*cm])
@@ -348,8 +560,6 @@ def generate_report():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
-# ─── Entry Point ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080, debug=False)
