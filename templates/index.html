@@ -1,154 +1,4 @@
 <!DOCTYPE html>
-<!-- ============================================================
-  LOCATION SEARCH BAR — paste this ABOVE your existing
-  latitude / longitude input fields in index.html
-  ============================================================ -->
-
-<!-- 1. SEARCH UI -->
-<div class="form-group" id="location-search-group">
-  <label for="locationSearch">🔍 Search Location</label>
-  <div style="position: relative;">
-    <input
-      type="text"
-      id="locationSearch"
-      placeholder="Type any city, district or address…"
-      autocomplete="off"
-      oninput="onLocationInput(this.value)"
-      style="width:100%; padding-right: 2.5rem;"
-    />
-    <!-- spinner shown while fetching -->
-    <span id="searchSpinner"
-          style="display:none; position:absolute; right:0.75rem; top:50%;
-                 transform:translateY(-50%); font-size:1rem;">⏳</span>
-  </div>
-
-  <!-- Dropdown results list -->
-  <ul id="locationResults"
-      style="display:none; list-style:none; margin:0; padding:0;
-             border:1px solid var(--border, #e2e8f0); border-top:none;
-             border-radius:0 0 8px 8px; background:var(--card-bg, #fff);
-             max-height:220px; overflow-y:auto; z-index:999;
-             box-shadow:0 4px 12px rgba(0,0,0,0.1);">
-  </ul>
-
-  <p id="searchMsg" style="font-size:0.8rem; color:#888; margin-top:4px;"></p>
-</div>
-
-
-<!-- ============================================================
-  2. JAVASCRIPT — add this anywhere in your <script> block
-  ============================================================ -->
-<script>
-  let searchTimer = null;   // debounce timer
-
-  /**
-   * Called on every keystroke in the search box.
-   * Debounces 400 ms before hitting the API.
-   */
-  function onLocationInput(value) {
-    clearTimeout(searchTimer);
-    const msg      = document.getElementById('searchMsg');
-    const list     = document.getElementById('locationResults');
-    const spinner  = document.getElementById('searchSpinner');
-
-    if (value.trim().length < 2) {
-      list.style.display  = 'none';
-      msg.textContent     = '';
-      spinner.style.display = 'none';
-      return;
-    }
-
-    spinner.style.display = 'inline';
-    msg.textContent = '';
-
-    searchTimer = setTimeout(() => searchLocation(value.trim()), 400);
-  }
-
-  /**
-   * Fetch matching locations from our Flask endpoint,
-   * which calls OpenStreetMap Nominatim internally.
-   */
-  async function searchLocation(query) {
-    const list    = document.getElementById('locationResults');
-    const spinner = document.getElementById('searchSpinner');
-    const msg     = document.getElementById('searchMsg');
-
-    try {
-      const res  = await fetch(`/api/search-location?q=${encodeURIComponent(query)}`);
-      const data = await res.json();
-
-      spinner.style.display = 'none';
-
-      if (data.error) {
-        msg.textContent   = '⚠ ' + data.error;
-        list.style.display = 'none';
-        return;
-      }
-
-      if (!data.results || data.results.length === 0) {
-        msg.textContent   = '😕 No locations found. Try a different name.';
-        list.style.display = 'none';
-        return;
-      }
-
-      // Build dropdown items
-      list.innerHTML = '';
-      data.results.forEach(place => {
-        const li = document.createElement('li');
-        li.textContent = place.display_name;
-        li.title       = place.full_name;   // tooltip with full address
-        li.style.cssText =
-          'padding:10px 14px; cursor:pointer; font-size:0.9rem;' +
-          'border-bottom:1px solid var(--border, #e2e8f0);' +
-          'transition:background 0.15s;';
-
-        li.onmouseenter = () => li.style.background = 'var(--hover-bg, #f0f9ff)';
-        li.onmouseleave = () => li.style.background = '';
-
-        li.onclick = () => selectLocation(place);
-        list.appendChild(li);
-      });
-
-      list.style.display = 'block';
-
-    } catch (err) {
-      spinner.style.display = 'none';
-      msg.textContent = '❌ Search failed. Please check your connection.';
-      console.error('Location search error:', err);
-    }
-  }
-
-  /**
-   * Called when the user clicks a result.
-   * Fills in lat, lon and tilt fields automatically.
-   */
-  function selectLocation(place) {
-    // Fill the search box with the chosen name
-    document.getElementById('locationSearch').value = place.display_name;
-
-    // Fill the main lat/lon inputs (adjust IDs to match yours)
-    const latField  = document.getElementById('latitude');
-    const lonField  = document.getElementById('longitude');
-    const tiltField = document.getElementById('tilt_angle');
-
-    if (latField)  latField.value  = place.lat.toFixed(4);
-    if (lonField)  lonField.value  = place.lon.toFixed(4);
-    if (tiltField) tiltField.value = place.suggested_tilt;
-
-    // Hide dropdown
-    document.getElementById('locationResults').style.display = 'none';
-    document.getElementById('searchMsg').textContent =
-      `✅ Set to ${place.display_name} (tilt auto-set to ${place.suggested_tilt}°)`;
-  }
-
-  // Close dropdown when clicking outside
-  document.addEventListener('click', function(e) {
-    const group = document.getElementById('location-search-group');
-    if (group && !group.contains(e.target)) {
-      document.getElementById('locationResults').style.display = 'none';
-    }
-  });
-</script>
 <html lang="en" data-theme="light">
 <head>
 <meta charset="UTF-8"/>
@@ -455,12 +305,111 @@ tr:nth-child(even):hover td{background:var(--surface3)}
 .hm-cell{width:18px;height:38px;border-radius:4px;cursor:pointer;transition:transform var(--ease)}
 .hm-cell:hover{transform:scale(1.25);z-index:5;position:relative}
 
+/* ═══ LOCATION SEARCH ═══ */
+.loc-search-wrap{position:relative;margin-bottom:1rem}
+.loc-search-wrap input{padding-right:2.5rem}
+#searchSpinner{display:none;position:absolute;right:0.75rem;top:50%;transform:translateY(-50%);font-size:1rem;pointer-events:none}
+#locationResults{
+  display:none;list-style:none;
+  border:1.5px solid var(--border);border-top:none;
+  border-radius:0 0 10px 10px;background:var(--surface);
+  max-height:220px;overflow-y:auto;z-index:999;position:relative;
+  box-shadow:0 8px 24px rgba(0,0,0,0.1);
+}
+#locationResults li{padding:10px 14px;cursor:pointer;font-size:0.88rem;border-bottom:1px solid var(--border);transition:background 0.15s;color:var(--text2)}
+#locationResults li:last-child{border-bottom:none}
+#locationResults li:hover{background:var(--surface3);color:var(--sun)}
+#searchMsg{font-size:0.75rem;color:var(--muted);margin-top:4px}
+
+/* ═══ TARIFF SELECTOR ═══ */
+.tariff-section{
+  background:linear-gradient(135deg,rgba(14,165,233,0.04),rgba(139,92,246,0.04));
+  border:1.5px solid var(--border);
+  border-radius:var(--radius-sm);
+  padding:1rem;
+  margin-bottom:0.85rem;
+}
+.tariff-section-title{
+  font-size:0.67rem;font-weight:700;letter-spacing:2px;text-transform:uppercase;
+  color:var(--blue);margin-bottom:0.75rem;display:flex;align-items:center;gap:0.5rem;
+}
+.tariff-section-title::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,rgba(14,165,233,0.3),transparent)}
+
+/* Category buttons */
+.tariff-cat-btns{display:flex;gap:7px;flex-wrap:wrap}
+.tariff-cat-btn{
+  flex:1;min-width:80px;
+  padding:0.55rem 0.5rem;
+  border:2px solid var(--border);border-radius:10px;
+  background:var(--surface2);cursor:pointer;
+  font-size:0.75rem;font-weight:700;font-family:'Syne',sans-serif;
+  color:var(--muted);transition:all var(--ease);
+  display:flex;flex-direction:column;align-items:center;gap:2px;
+}
+.tariff-cat-btn .tc-icon{font-size:1.1rem;line-height:1}
+.tariff-cat-btn .tc-label{font-size:0.65rem}
+.tariff-cat-btn:hover{border-color:var(--border2);color:var(--text2)}
+.tariff-cat-btn.active.residential{border-color:#0ea5e9;background:rgba(14,165,233,0.08);color:#0ea5e9}
+.tariff-cat-btn.active.industrial{border-color:#8b5cf6;background:rgba(139,92,246,0.08);color:#8b5cf6}
+.tariff-cat-btn.active.custom{border-color:var(--sun);background:var(--surface3);color:var(--sun)}
+[data-theme="dark"] .tariff-cat-btn{background:var(--surface2);border-color:var(--border)}
+[data-theme="dark"] .tariff-cat-btn.active.residential{background:rgba(14,165,233,0.12);border-color:#0ea5e9;color:#38bdf8}
+[data-theme="dark"] .tariff-cat-btn.active.industrial{background:rgba(139,92,246,0.12);border-color:#8b5cf6;color:#a78bfa}
+[data-theme="dark"] .tariff-cat-btn.active.custom{background:rgba(249,115,22,0.12)}
+
+/* State select row */
+.tariff-state-row{display:flex;gap:8px;align-items:center;margin-top:0.75rem}
+.tariff-state-row label{font-size:0.72rem;font-weight:700;color:var(--muted);white-space:nowrap;min-width:50px}
+.tariff-state-row select{flex:1;padding:0.48rem 0.75rem;font-size:0.84rem}
+
+/* Slab card */
+.slab-card{
+  margin-top:0.75rem;
+  background:var(--surface);border:1px solid var(--border2);
+  border-radius:10px;padding:0.85rem 1rem;
+  animation:fadeIn 0.25s ease;
+}
+@keyframes fadeIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+.slab-card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:0.65rem;flex-wrap:wrap;gap:0.4rem}
+.slab-discom{font-size:0.7rem;font-weight:700;color:var(--text2)}
+.slab-type-pill{
+  font-size:0.62rem;padding:0.15rem 0.55rem;border-radius:50px;font-weight:700;
+  font-family:'Syne',sans-serif;
+}
+.slab-type-pill.residential{background:rgba(14,165,233,0.12);color:#0ea5e9}
+.slab-type-pill.industrial{background:rgba(139,92,246,0.12);color:#8b5cf6}
+.slab-table{width:100%;border-collapse:collapse;font-size:0.75rem;margin-bottom:0.5rem}
+.slab-table th{
+  padding:0.35rem 0.6rem;font-weight:700;text-align:left;
+  background:rgba(14,165,233,0.06);color:var(--blue);
+  font-family:'Syne',sans-serif;font-size:0.65rem;letter-spacing:0.5px;
+}
+.slab-table td{padding:0.38rem 0.6rem;border-bottom:1px solid var(--border);color:var(--text2)}
+.slab-table tr:last-child td{border-bottom:none}
+.slab-table td:last-child{font-family:'DM Mono',monospace;font-weight:600;color:var(--text)}
+.slab-note-box{font-size:0.68rem;color:var(--muted);background:rgba(245,158,11,0.07);border:1px solid rgba(245,158,11,0.2);border-radius:7px;padding:0.38rem 0.6rem;margin-bottom:0.5rem}
+.slab-effective-row{font-size:0.72rem;color:var(--muted);display:flex;align-items:center;gap:0.4rem}
+.slab-effective-row strong{color:var(--green);font-family:'DM Mono',monospace;font-size:0.78rem}
+
+/* Rate field */
+.rate-field-wrap{margin-top:0.75rem}
+.rate-label-row{display:flex;align-items:center;gap:0.4rem;margin-bottom:0.35rem}
+.rate-label-row label{margin-bottom:0;font-size:0.74rem;font-weight:600;color:var(--muted)}
+.rate-source-badge{
+  font-size:0.58rem;padding:0.1rem 0.45rem;border-radius:20px;
+  font-weight:700;font-family:'Syne',sans-serif;
+}
+.rate-source-badge.preset{background:rgba(22,163,74,0.12);color:var(--green)}
+.rate-source-badge.custom{background:rgba(249,115,22,0.12);color:var(--sun)}
+.rate-hint{font-size:0.68rem;color:var(--muted);margin-top:0.25rem}
+
 /* ═══ MOBILE ═══ */
 @media(max-width:640px){
   .tab-bar{gap:0.22rem;padding:0.35rem}
   .tab{padding:0.36rem 0.6rem;font-size:0.7rem}
   .s-val{font-size:1.2rem}
   header{padding:0.72rem 0.9rem}
+  .tariff-cat-btn{min-width:70px}
 }
 </style>
 </head>
@@ -498,6 +447,16 @@ tr:nth-child(even):hover td{background:var(--surface3)}
   <div id="presets-row" class="presets-row">
     <span style="font-size:0.68rem;font-weight:700;color:var(--muted);align-self:center;white-space:nowrap">Quick:</span>
   </div>
+
+  <!-- Location Search -->
+  <div class="loc-search-wrap">
+    <input type="text" id="locationSearch" placeholder="🔍 Search any city, district or address…"
+      autocomplete="off" oninput="onLocationInput(this.value)"/>
+    <span id="searchSpinner">⏳</span>
+    <ul id="locationResults"></ul>
+    <p id="searchMsg"></p>
+  </div>
+
   <div class="loc-bar">
     <span>📍</span>
     <span id="loc-text">Enter location or auto-detect</span>
@@ -532,10 +491,67 @@ tr:nth-child(even):hover td{background:var(--surface3)}
       <label>Shading Loss (%) <span class="hint" id="h-shad">5%</span></label>
       <input type="range" id="shading_loss" value="5" min="0" max="40" step="1" oninput="hint('h-shad',this.value,'%');livePreview()"/>
     </div>
-    <div class="form-group">
-      <label>Rate (₹/kWh) <span class="req">*</span></label>
-      <input type="number" id="electricity_rate" value="7" min="1" max="30" step="0.5" oninput="livePreview()"/>
+  </div>
+
+  <!-- ══ TARIFF SELECTOR ══ -->
+  <div class="tariff-section" style="margin-top:1rem">
+    <div class="tariff-section-title">💡 Electricity Tariff</div>
+
+    <!-- Step 1: Category -->
+    <div class="tariff-cat-btns">
+      <button type="button" class="tariff-cat-btn active residential" data-cat="residential" onclick="selectTariffCat('residential')">
+        <span class="tc-icon">🏠</span>
+        <span class="tc-label">Residential</span>
+      </button>
+      <button type="button" class="tariff-cat-btn industrial" data-cat="industrial" onclick="selectTariffCat('industrial')">
+        <span class="tc-icon">🏭</span>
+        <span class="tc-label">Industrial</span>
+      </button>
+      <button type="button" class="tariff-cat-btn custom" data-cat="custom" onclick="selectTariffCat('custom')">
+        <span class="tc-icon">✏️</span>
+        <span class="tc-label">Custom</span>
+      </button>
     </div>
+
+    <!-- Step 2: State (hidden for custom) -->
+    <div class="tariff-state-row" id="tariff-state-row">
+      <label>State</label>
+      <select id="tariff-state-select" onchange="onStateSelect()">
+        <option value="">— Select your state —</option>
+      </select>
+    </div>
+
+    <!-- Step 3: Slab breakdown card -->
+    <div class="slab-card" id="slab-card" style="display:none">
+      <div class="slab-card-header">
+        <span class="slab-discom" id="slab-discom"></span>
+        <span class="slab-type-pill" id="slab-type-pill"></span>
+      </div>
+      <table class="slab-table">
+        <thead><tr><th>Units (kWh)</th><th>Rate (₹/kWh)</th></tr></thead>
+        <tbody id="slab-tbody"></tbody>
+      </table>
+      <div class="slab-note-box" id="slab-note" style="display:none"></div>
+      <div class="slab-effective-row">
+        Effective avg rate: <strong id="slab-eff-rate">—</strong>
+        <span style="font-size:0.65rem;color:var(--muted)">(based on 200 kWh/month)</span>
+      </div>
+    </div>
+
+    <!-- Step 4: Rate input — always visible -->
+    <div class="rate-field-wrap">
+      <div class="rate-label-row">
+        <label for="electricity_rate">₹ / kWh Rate <span class="req">*</span></label>
+        <span class="rate-source-badge preset" id="rate-badge" style="display:none"></span>
+      </div>
+      <input type="number" id="electricity_rate" value="7" min="0.5" max="30" step="0.1"
+        placeholder="e.g. 7.50" oninput="onManualRateEdit()"/>
+      <div class="rate-hint" id="rate-hint">Enter your electricity rate per unit (₹/kWh)</div>
+    </div>
+  </div>
+  <!-- ══ END TARIFF SELECTOR ══ -->
+
+  <div class="form-grid" style="margin-top:0.1rem">
     <div class="form-group">
       <label>Monthly Bill (₹)</label>
       <input type="number" id="monthly_bill" value="2000" min="100" oninput="livePreview()"/>
@@ -799,8 +815,13 @@ tr:nth-child(even):hover td{background:var(--surface3)}
 <div class="toast" id="toast"></div>
 
 <script>
-/* ─── STATE ─── */
-let D=null,I=null,CH={};
+/* ─── GLOBAL STATE ─── */
+let D=null, I=null, CH={};
+let tariffData=null;
+let selectedCat='residential';
+let selectedState='';
+let currentSlabs=null;
+let searchTimer=null;
 
 /* ─── DARK MODE ─── */
 function toggleDark(){
@@ -822,8 +843,8 @@ function goTab(n,el){
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
   el.classList.add('active');
   document.getElementById('tab-'+n).classList.add('active');
-  if(n==='weekly'&&D) renderWeekly();
-  if(n==='roi'&&D) renderCumul();
+  if(n==='weekly'&&D)renderWeekly();
+  if(n==='roi'&&D)renderCumul();
 }
 
 /* ─── HELPERS ─── */
@@ -879,7 +900,121 @@ fetch('/api/presets').then(r=>r.json()).then(ps=>{
   document.getElementById('wk-month').value=new Date().getMonth();
 }).catch(()=>{});
 
-/* ─── DETECT ─── */
+/* ─── LOAD TARIFFS ─── */
+async function loadTariffs(){
+  try{
+    const r=await fetch('/api/tariffs');
+    tariffData=await r.json();
+    populateStateDropdown('residential');
+  }catch(e){console.warn('Tariff load failed:',e)}
+}
+loadTariffs();
+
+/* ─── TARIFF CATEGORY SELECT ─── */
+function selectTariffCat(cat){
+  selectedCat=cat;selectedState='';currentSlabs=null;
+  document.querySelectorAll('.tariff-cat-btn').forEach(b=>{
+    b.classList.remove('active','residential','industrial','custom');
+    if(b.dataset.cat===cat)b.classList.add('active',cat);
+  });
+  const stRow=document.getElementById('tariff-state-row');
+  const slabCard=document.getElementById('slab-card');
+  if(cat==='custom'){
+    stRow.style.display='none';
+    slabCard.style.display='none';
+    setRateBadge(null);
+    setRateHint('Enter your electricity rate manually');
+    document.getElementById('electricity_rate').readOnly=false;
+  } else {
+    stRow.style.display='flex';
+    slabCard.style.display='none';
+    populateStateDropdown(cat);
+    document.getElementById('tariff-state-select').value='';
+    setRateBadge(null);
+    setRateHint('Select your state to auto-fill tariff');
+  }
+}
+
+/* ─── POPULATE STATE DROPDOWN ─── */
+function populateStateDropdown(cat){
+  const sel=document.getElementById('tariff-state-select');
+  sel.innerHTML='<option value="">— Select your state —</option>';
+  if(!tariffData||!tariffData[cat])return;
+  Object.keys(tariffData[cat].states).sort().forEach(state=>{
+    const opt=document.createElement('option');opt.value=state;opt.textContent=state;
+    sel.appendChild(opt);
+  });
+}
+
+/* ─── STATE SELECT ─── */
+function onStateSelect(){
+  selectedState=document.getElementById('tariff-state-select').value;
+  if(!selectedState){
+    document.getElementById('slab-card').style.display='none';
+    currentSlabs=null;return;
+  }
+  const sd=tariffData[selectedCat].states[selectedState];
+  if(!sd)return;
+  currentSlabs=sd.slabs;
+  // Auto-fill rate
+  document.getElementById('electricity_rate').value=sd.flat_rate;
+  document.getElementById('electricity_rate').readOnly=false;
+  // Render slab card
+  renderSlabCard(sd,selectedCat);
+  // Effective rate
+  const eff=computeEffectiveRate(200,sd.slabs);
+  document.getElementById('slab-eff-rate').textContent='₹'+eff.toFixed(2)+'/kWh';
+  // Badge
+  const catLabel=selectedCat==='residential'?'Residential':'Industrial';
+  setRateBadge(`${selectedState} ${catLabel}`,'preset');
+  setRateHint('Auto-filled from state tariff — you can adjust if needed');
+  livePreview();
+}
+
+/* ─── RENDER SLAB CARD ─── */
+function renderSlabCard(sd,cat){
+  const card=document.getElementById('slab-card');
+  card.style.display='block';
+  document.getElementById('slab-discom').textContent='DISCOM: '+sd.discom;
+  const pill=document.getElementById('slab-type-pill');
+  pill.className='slab-type-pill '+cat;
+  pill.textContent=cat==='residential'?'🏠 Residential':'🏭 Industrial';
+  const tbody=document.getElementById('slab-tbody');tbody.innerHTML='';
+  sd.slabs.forEach(s=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${s.label}</td><td>₹${s.rate.toFixed(2)}</td>`;
+    tbody.appendChild(tr);
+  });
+  const noteEl=document.getElementById('slab-note');
+  if(sd.note){noteEl.textContent='ℹ️ '+sd.note;noteEl.style.display='block'}
+  else{noteEl.style.display='none'}
+}
+
+/* ─── COMPUTE EFFECTIVE RATE ─── */
+function computeEffectiveRate(kwh,slabs){
+  let cost=0,rem=kwh,prev=0;
+  for(const s of slabs){
+    const lim=s.limit;
+    if(lim===null||lim===undefined){cost+=rem*s.rate;rem=0;break}
+    const units=Math.min(rem,lim-prev);cost+=units*s.rate;rem-=units;prev=lim;
+    if(rem<=0)break;
+  }
+  return kwh>0?cost/kwh:0;
+}
+
+/* ─── RATE BADGE & HINT ─── */
+function setRateBadge(text,type='preset'){
+  const b=document.getElementById('rate-badge');
+  if(text){b.textContent=text;b.className='rate-source-badge '+type;b.style.display='inline'}
+  else{b.style.display='none'}
+}
+function setRateHint(txt){document.getElementById('rate-hint').textContent=txt}
+function onManualRateEdit(){
+  if(selectedCat!=='custom')setRateBadge('Custom Override','custom');
+  livePreview();
+}
+
+/* ─── DETECT LOCATION ─── */
 function detectLocation(){
   if(!navigator.geolocation){toast('Geolocation not supported');return}
   document.getElementById('loc-text').textContent='🔄 Detecting…';
@@ -891,18 +1026,68 @@ function detectLocation(){
   },()=>{toast('Detection failed — enter manually');document.getElementById('loc-text').textContent='Detection failed'});
 }
 
+/* ─── LOCATION SEARCH ─── */
+function onLocationInput(value){
+  clearTimeout(searchTimer);
+  const msg=document.getElementById('searchMsg');
+  const list=document.getElementById('locationResults');
+  const spinner=document.getElementById('searchSpinner');
+  if(value.trim().length<2){list.style.display='none';msg.textContent='';spinner.style.display='none';return}
+  spinner.style.display='inline';msg.textContent='';
+  searchTimer=setTimeout(()=>doLocationSearch(value.trim()),400);
+}
+async function doLocationSearch(query){
+  const list=document.getElementById('locationResults');
+  const spinner=document.getElementById('searchSpinner');
+  const msg=document.getElementById('searchMsg');
+  try{
+    const res=await fetch(`/api/search-location?q=${encodeURIComponent(query)}`);
+    const data=await res.json();
+    spinner.style.display='none';
+    if(data.error){msg.textContent='⚠ '+data.error;list.style.display='none';return}
+    if(!data.results||data.results.length===0){msg.textContent='😕 No locations found.';list.style.display='none';return}
+    list.innerHTML='';
+    data.results.forEach(place=>{
+      const li=document.createElement('li');li.textContent=place.display_name;li.title=place.full_name;
+      li.onclick=()=>selectSearchLocation(place);list.appendChild(li);
+    });
+    list.style.display='block';
+  }catch(err){spinner.style.display='none';msg.textContent='❌ Search failed.';console.error(err)}
+}
+function selectSearchLocation(place){
+  document.getElementById('locationSearch').value=place.display_name;
+  const latF=document.getElementById('latitude');const lonF=document.getElementById('longitude');const tiltF=document.getElementById('tilt_angle');
+  if(latF)latF.value=place.lat.toFixed(4);
+  if(lonF)lonF.value=place.lon.toFixed(4);
+  if(tiltF){tiltF.value=place.suggested_tilt;document.getElementById('h-tilt').textContent=place.suggested_tilt+'°'}
+  document.getElementById('locationResults').style.display='none';
+  document.getElementById('loc-text').textContent=`📍 ${place.display_name}`;
+  document.getElementById('searchMsg').textContent=`✅ Tilt auto-set to ${place.suggested_tilt}°`;
+  livePreview();
+}
+document.addEventListener('click',function(e){
+  const wrap=document.querySelector('.loc-search-wrap');
+  if(wrap&&!wrap.contains(e.target))document.getElementById('locationResults').style.display='none';
+});
+
 /* ─── CALCULATE ─── */
 async function doCalc(){
   const la=parseFloat(document.getElementById('latitude').value);
   const lo=parseFloat(document.getElementById('longitude').value);
   if(isNaN(la)||isNaN(lo)){toast('Enter a valid location first');return}
-  const inp={latitude:la,longitude:lo,
+  const inp={
+    latitude:la,longitude:lo,
     capacity_kw:parseFloat(document.getElementById('capacity_kw').value),
     efficiency:parseFloat(document.getElementById('efficiency').value),
     tilt_angle:parseFloat(document.getElementById('tilt_angle').value),
     shading_loss:parseFloat(document.getElementById('shading_loss').value),
     electricity_rate:parseFloat(document.getElementById('electricity_rate').value),
-    monthly_bill:parseFloat(document.getElementById('monthly_bill').value)||2000};
+    monthly_bill:parseFloat(document.getElementById('monthly_bill').value)||2000,
+    // Tariff fields
+    tariff_slabs:currentSlabs||null,
+    tariff_category:selectedCat,
+    tariff_state:selectedState,
+  };
   document.getElementById('calc-btn').style.opacity='0.75';
   document.getElementById('btn-txt').textContent='⏳ Fetching NASA Data…';
   document.getElementById('spinner').style.display='flex';
@@ -940,7 +1125,7 @@ function renderOverview(d){
   renderMoChart(d,'energy');renderHeatmap(d);
 }
 
-/* ─── MONTHLY CHART (switchable) ─── */
+/* ─── MONTHLY CHART ─── */
 let curView='energy';
 function swChart(v,el){
   curView=v;
@@ -987,7 +1172,6 @@ function renderDailyTab(d){
   const peak=Math.max(...hv);
   document.getElementById('d-peak-kw').textContent=peak.toFixed(2)+' kWh';
   document.getElementById('d-sun-h').textContent=(daily/(I.capacity_kw||3)).toFixed(1)+' h';
-  // Chart
   if(CH.hr)CH.hr.destroy();
   const bgC=hv.map((_,i)=>i>=6&&i<12?'rgba(251,191,36,0.7)':i>=12&&i<17?'rgba(249,115,22,0.85)':i>=17&&i<20?'rgba(251,146,60,0.5)':'rgba(99,102,241,0.2)');
   CH.hr=new Chart(document.getElementById('hourlyChart').getContext('2d'),{
@@ -995,7 +1179,6 @@ function renderDailyTab(d){
     data:{labels:hrs.map(h=>h+':00'),datasets:[{label:'kWh',data:hv,backgroundColor:bgC,borderRadius:4,borderSkipped:false},{type:'line',label:'Curve',data:hv,borderColor:'rgba(249,115,22,0.55)',backgroundColor:'rgba(249,115,22,0.06)',fill:true,tension:0.5,pointRadius:0,borderWidth:2}]},
     options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{color:'var(--muted)',font:{size:10}},grid:{color:'rgba(120,113,108,0.08)'}},x:{ticks:{color:'var(--muted)',font:{size:9},maxRotation:0,maxTicksLimit:8},grid:{display:false}}}}
   });
-  // Hourly table
   const tb=document.getElementById('hourly-tbody');tb.innerHTML='';
   const period=h=>h<6?'Night':h<12?'Morning':h<17?'Afternoon':h<20?'Evening':'Night';
   hv.forEach((kw,h)=>{
@@ -1005,7 +1188,6 @@ function renderDailyTab(d){
     const bar=`<div style="width:${Math.round(sc2*70)}px;height:5px;background:linear-gradient(90deg,var(--sun2),var(--sun3));border-radius:3px;display:inline-block;vertical-align:middle"></div>`;
     tb.innerHTML+=`<tr><td class="tdm">${String(h).padStart(2,'0')}:00</td><td><span class="badge ${bc}">${p}</span></td><td class="tdm">${kw.toFixed(3)}</td><td class="tdm">₹${(kw*rate).toFixed(2)}</td><td>${bar}</td></tr>`;
   });
-  // Week heatmap
   const wh=document.getElementById('week-heat');wh.innerHTML='';
   const mo=new Date().getMonth();const avg=d.monthly.energy[mo]/30||daily;const mx2=avg*1.09;
   Array.from({length:7},()=>avg*(0.91+Math.random()*0.18)).forEach(v=>{
@@ -1026,7 +1208,6 @@ function renderWeekly(){
   const days=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
   const dv=days.map((_,i)=>+(avg*var7[i]*(0.93+Math.random()*0.14)).toFixed(2));
   const mx=Math.max(...dv);const bi=dv.indexOf(mx);
-  // Bars
   const bw=document.getElementById('wk-bars');bw.innerHTML='';
   dv.forEach((v,i)=>{
     const w=document.createElement('div');w.className='wbar-wrap';
@@ -1036,27 +1217,23 @@ function renderWeekly(){
     w.appendChild(f);bw.appendChild(w);
     setTimeout(()=>{f.style.height=Math.round((v/mx)*115)+'px'},50*i);
   });
-  // Stats
   const wt=dv.reduce((a,b)=>a+b,0);const ws=+(wt*rate).toFixed(2);const wc=+(wt*0.82).toFixed(2);
   document.getElementById('w-en').textContent=wt.toFixed(1)+' kWh';
   document.getElementById('w-sav').textContent=fmtR(ws);
   document.getElementById('w-co2').textContent=wc+' kg';
   document.getElementById('w-best').textContent=days[bi];
-  // Weekly chart
   if(CH.wk)CH.wk.destroy();
   CH.wk=new Chart(document.getElementById('weeklyChart').getContext('2d'),{
     type:'line',
     data:{labels:days,datasets:[{label:'Energy (kWh)',data:dv,borderColor:'var(--sun)',backgroundColor:'rgba(249,115,22,0.08)',fill:true,tension:0.4,pointBackgroundColor:'var(--sun)',pointRadius:5,pointHoverRadius:8},{label:'Avg',data:Array(7).fill(+avg.toFixed(2)),borderColor:'rgba(22,163,74,0.6)',borderDash:[5,3],pointRadius:0,tension:0}]},
     options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'var(--muted)',font:{size:11}}}},scales:{y:{beginAtZero:false,ticks:{color:'var(--muted)'},grid:{color:'rgba(120,113,108,0.1)'}},x:{ticks:{color:'var(--muted)'},grid:{display:false}}}}
   });
-  // 4-week table
   const tb=document.getElementById('four-wk-tbody');tb.innerHTML='';
   for(let w=1;w<=4;w++){
     const f=0.94+Math.random()*0.12;const wk=+(wt*f).toFixed(1);const ws2=+(wk*rate).toFixed(0);const wco2=+(wk*0.82).toFixed(1);
     const dt=(((wk-wt)/wt)*100).toFixed(1);const up=parseFloat(dt)>=0;
     tb.innerHTML+=`<tr><td><strong>Week ${w}</strong></td><td class="tdm">${wk}</td><td class="tdm">₹${fmt(ws2)}</td><td class="tdm">${wco2}</td><td><span class="badge ${up?'b-green':'b-sun'}">${up?'▲':'▼'}${Math.abs(dt)}%</span></td></tr>`;
   }
-  // Weather influence
   const seasons=['☀','☀','🌤','🌤','🌥','🌧','🌧','🌧','🌦','🌤','☀','☀'];
   const sLoss=[0,0,0.02,0.03,0.05,0.20,0.35,0.35,0.20,0.05,0.02,0];
   const moNames=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -1117,12 +1294,10 @@ function renderTipsTab(d){
   document.getElementById('t-b2').textContent=d.battery.two_day_battery_kwh+' kWh';
   document.getElementById('t-avg').textContent=d.battery.avg_daily_kwh;
   document.getElementById('t-b1b').textContent=d.battery.one_day_battery_kwh;
-  // Gauge
   const irr=d.irradiance;const avg=+(Object.values(irr).reduce((a,b)=>a+b,0)/12).toFixed(2);
   document.getElementById('g-val').textContent=avg;
   const p=Math.min((avg-2)/(8-2),1);
   setTimeout(()=>{document.getElementById('g-arc').style.strokeDashoffset=205*(1-p)},400);
-  // Irradiance bars
   const ib=document.getElementById('irr-bars');ib.innerHTML='';
   const ns=['J','F','M','A','M','J','J','A','S','O','N','D'];
   const iv=Object.values(irr);const mxI=Math.max(...iv);
@@ -1165,7 +1340,7 @@ async function runCmp(){
   }catch(e){toast(e.message)}
 }
 
-/* ─── FORECAST ─── */
+/* ─── FORECAST TAB ─── */
 function renderForecastTab(d){
   document.getElementById('fc-y1').textContent=fmt(d.forecast.base_yearly_kwh);
   document.getElementById('fc-sl').textContent=Math.abs(d.forecast.slope).toFixed(1);
